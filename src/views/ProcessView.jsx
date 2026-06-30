@@ -388,7 +388,7 @@ function MatrixDetail({sel,params}){
 }
 
 // ProcessView principale
-export default function ProcessView({process:proc,onBack}){
+export default function ProcessView({process:proc,onBack,onPersist}){
   const [activeTab,setActiveTab]=useState("inputs");
   const [inputs,setInputs]=useState(proc.initialInputs||[]);
   const [biaCells,setBiaCells]=useState(()=>{const base={};IMPACT_DIMS.forEach(d=>{base[d.id]=(proc.initialBIA?.[d.id]||new Array(BIA_WINDOWS.length).fill(0));});return base;});
@@ -427,7 +427,7 @@ export default function ProcessView({process:proc,onBack}){
           {critHigh>0&&<><div style={{width:1,height:24,background:T.gray100}}/><div style={{textAlign:"right"}}><div style={{fontSize:10,color:T.gray400}}>Crit. molto alta</div><div style={{fontSize:13,fontWeight:500,color:T.red800}}>{critHigh} input</div></div></>}
           {issues>0&&<><div style={{width:1,height:24,background:T.gray100}}/><div style={{textAlign:"right"}}><div style={{fontSize:10,color:T.gray400}}>Issue aperte</div><div style={{fontSize:13,fontWeight:500,color:T.amber600}}>{issues}</div></div></>}
         </div>
-        <button onClick={()=>showToast("Scheda salvata")} style={{padding:"7px 14px",borderRadius:7,border:"none",background:T.blue600,color:"#fff",fontWeight:500,fontSize:12,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background=T.blue800} onMouseLeave={e=>e.currentTarget.style.background=T.blue600}>Salva scheda</button>
+        <button onClick={()=>{if(onPersist){onPersist({inputs,biaCells});}else{showToast("Scheda salvata");}}} style={{padding:"7px 14px",borderRadius:7,border:"none",background:T.blue600,color:"#fff",fontWeight:500,fontSize:12,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background=T.blue800} onMouseLeave={e=>e.currentTarget.style.background=T.blue600}>Salva scheda</button>
       </div>
     </div>
     <div style={{padding:"14px 18px"}}>
