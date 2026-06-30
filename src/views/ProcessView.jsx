@@ -1,4 +1,8 @@
 import { useState, useRef, useCallback } from "react";
+import { useConfig } from "../context/ConfigContext.jsx";
+
+// Ordine di gravità delle classi di criticità (per ordinamento tabelle)
+const CRIT_ORDER = ["molto alta", "alta", "media", "bassa", "molto bassa"];
 
 // ─── Palette condivisa ────────────────────────────────────────────────────────
 const T = {
@@ -284,20 +288,25 @@ function TabBIA({process:proc,biaCells,onChange}){
   </div>);
 }
 
-// TabCriticality
+// TabCriticality — model-aware: usa il modello di criticità attivo (Impostazioni)
 function TabCriticality({inputs,mtpdHours,rtoHours}){
+  const {computeCrit,activeModel,activeParams}=useConfig();
+  const isMatrix=activeModel.id==="matrix";
   const [selId,setSelId]=useState(null);
-  const enriched=inputs.filter(i=>i.vuln&&i.likelihood).map(i=>{const r=computeCriticality({mtpdHours,rtoHours,vuln:i.vuln,likelihood:i.likelihood});return{...i,...r};}).sort((a,b)=>a.cFinal-b.cFinal);
+  const enriched=inputs.filter(i=>i.vuln&&i.likelihood)
+    .map(i=>({...i,...computeCrit({mtpdHours,rtoHours,vuln:i.vuln,likelihood:i.likelihood})}))
+    .sort((a,b)=>(CRIT_ORDER.indexOf(a.classFinal)-CRIT_ORDER.indexOf(b.classFinal))||((a.cFinal??0)-(b.cFinal??0)));
   const sel=enriched.find(r=>r.id===selId)||null;const missing=inputs.filter(i=>!i.vuln||!i.likelihood);
   const vC={alto:T.red600,medio:T.amber600,basso:T.green600};const vBg={alto:T.red50,medio:T.amber50,basso:T.green50};const lkC={alta:T.red600,media:T.amber600,bassa:T.green600};const lkBg={alta:T.red50,media:T.amber50,bassa:T.green50};
   if(!enriched.length)return(<div style={{background:"#fff",border:`0.5px solid ${T.gray100}`,borderRadius:10,padding:32,textAlign:"center",color:T.gray400,fontSize:13}}>Nessun input ha vulnerabilità e likelihood valorizzate.<br/>Completare gli input nella tab Input per calcolare la criticità.</div>);
+  const cols=isMatrix?["#","Input","Cat.","Vuln.","Likelihood","VxL","Urgenza","Criticità finale"]:["#","Input","Cat.","Vuln.","Likelihood","VxL","Crit(MTPD)","Crit(RTO)","Criticità finale"];
   return(<div>
     {missing.length>0&&<div style={{background:T.amber50,border:`0.5px solid ${T.amber400}`,borderRadius:7,padding:"7px 11px",marginBottom:10,fontSize:11,color:T.amber600,display:"flex",gap:7}}><span>⚠</span><span><strong>{missing.length} input</strong> senza vulnerabilità o likelihood — non inclusi nel calcolo.</span></div>}
-    <div style={{background:T.blue50,border:`0.5px solid ${T.blue100}`,borderRadius:7,padding:"7px 11px",marginBottom:12,fontSize:11,color:T.blue800,display:"flex",gap:7}}><span>ℹ</span><span>Criticality = (MTPD/720)/VxL e (RTO/720)/VxL — principio conservativo §6.5. Clicca una riga per il calcolo passo per passo.</span></div>
+    <div style={{background:T.blue50,border:`0.5px solid ${T.blue100}`,borderRadius:7,padding:"7px 11px",marginBottom:12,fontSize:11,color:T.blue800,display:"flex",gap:7}}><span>ℹ</span><span>Modello attivo: <strong>{activeModel.label}</strong> — {activeModel.description} Clicca una riga per il calcolo passo per passo. <em>(Cambia modello in Impostazioni.)</em></span></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:12}}>
       <div style={{background:"#fff",border:`0.5px solid ${T.gray100}`,borderRadius:10,overflow:"hidden"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:T.gray50}}>{["#","Input","Cat.","Vuln.","Likelihood","VxL","Crit(MTPD)","Crit(RTO)","Criticità finale"].map(h=>(<th key={h} style={{padding:"5px 8px",textAlign:"left",fontSize:10,fontWeight:500,color:T.gray400,borderBottom:`0.5px solid ${T.gray100}`,textTransform:"uppercase",letterSpacing:".04em",whiteSpace:"nowrap"}}>{h}</th>))}</tr></thead>
+          <thead><tr style={{background:T.gray50}}>{cols.map(h=>(<th key={h} style={{padding:"5px 8px",textAlign:"left",fontSize:10,fontWeight:500,color:T.gray400,borderBottom:`0.5px solid ${T.gray100}`,textTransform:"uppercase",letterSpacing:".04em",whiteSpace:"nowrap"}}>{h}</th>))}</tr></thead>
           <tbody>{enriched.map((r,i)=>(<tr key={r.id} onClick={()=>setSelId(r.id)} style={{background:selId===r.id?T.blue50:"transparent",cursor:"pointer"}} onMouseEnter={e=>{if(selId!==r.id)e.currentTarget.style.background=T.gray50;}} onMouseLeave={e=>{if(selId!==r.id)e.currentTarget.style.background="transparent";}}>
             <td style={{padding:"6px 8px",textAlign:"center",fontWeight:600,color:i<3?T.red600:T.gray400}}>{i+1}</td>
             <td style={{padding:"6px 8px",fontWeight:500,maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</td>
@@ -305,45 +314,75 @@ function TabCriticality({inputs,mtpdHours,rtoHours}){
             <td style={{padding:"6px 8px"}}><Badge bg={vBg[r.vuln]} color={vC[r.vuln]}>{r.vuln}</Badge></td>
             <td style={{padding:"6px 8px"}}><Badge bg={lkBg[r.likelihood]} color={lkC[r.likelihood]}>{r.likelihood}</Badge></td>
             <td style={{padding:"6px 8px",textAlign:"center"}}><span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,borderRadius:4,fontSize:11,fontWeight:700,background:r.vxl>=6?T.red100:r.vxl>=3?T.amber50:T.green50,color:r.vxl>=6?T.red800:r.vxl>=3?T.amber600:T.green600}}>{r.vxl}</span></td>
-            <td style={{padding:"6px 8px"}}><CritBadge level={r.classMTPD}/></td>
-            <td style={{padding:"6px 8px"}}><CritBadge level={r.classRTO}/></td>
+            {isMatrix
+              ?<td style={{padding:"6px 8px",fontSize:10,color:T.gray600,whiteSpace:"nowrap"}}>{r.urgencyLabel} <span style={{color:T.gray400}}>({rtoLabel(r.timeUsedH)})</span></td>
+              :<><td style={{padding:"6px 8px"}}><CritBadge level={r.classMTPD}/></td><td style={{padding:"6px 8px"}}><CritBadge level={r.classRTO}/></td></>}
             <td style={{padding:"6px 8px"}}><CritBadge level={r.classFinal}/></td>
           </tr>))}</tbody>
         </table>
       </div>
       <div style={{background:"#fff",border:`0.5px solid ${T.gray100}`,borderRadius:10,overflow:"hidden",alignSelf:"start",position:"sticky",top:0}}>
-        <div style={{padding:"9px 13px",borderBottom:`0.5px solid ${T.gray100}`,background:T.gray50}}><div style={{fontSize:11,fontWeight:500}}>Dettaglio calcolo §6.5</div></div>
-        {!sel?(<div style={{padding:20,textAlign:"center",color:T.gray400,fontSize:11}}>Seleziona un input per il calcolo dettagliato.</div>):(()=>{
-          const m=CRIT_META[sel.classFinal]||CRIT_META["media"];const pct=v=>Math.min(v/0.5,1)*100;
-          const vulns=["basso","medio","alto"],lks=["bassa","media","alta"];
-          return(<div style={{padding:14,maxHeight:"60vh",overflowY:"auto"}}>
-            <div style={{marginBottom:10}}><div style={{fontSize:12,fontWeight:500}}>{sel.name}</div><div style={{fontSize:10,color:T.gray400,marginTop:2}}>{catMeta(sel.cat).label}</div></div>
-            <div style={{background:m.bg,border:`1px solid ${m.border}`,borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div><div style={{fontSize:10,color:m.color,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Criticità finale</div><div style={{fontSize:18,fontWeight:700,color:m.color,textTransform:"uppercase"}}>{sel.classFinal}</div><div style={{fontSize:10,color:m.color,marginTop:2,opacity:.8}}>min({sel.cMTPD}, {sel.cRTO}) = {sel.cFinal}</div></div>
-            </div>
-            <div style={{background:T.gray50,borderRadius:7,padding:"9px 11px",marginBottom:10,fontSize:11}}>
-              <div style={{fontWeight:500,marginBottom:7}}>Step 1 — VxL</div>
-              <table style={{borderCollapse:"collapse",fontSize:10,width:"100%"}}>
-                <thead><tr><th style={{padding:"3px 7px",textAlign:"left",background:T.gray50,border:`0.5px solid ${T.gray100}`,color:T.gray600}}>V/Lk</th>{lks.map(lk=><th key={lk} style={{padding:"3px 7px",textAlign:"center",border:`0.5px solid ${T.gray100}`,background:sel.likelihood===lk?lkBg[lk]:T.gray50,color:sel.likelihood===lk?lkC[lk]:T.gray600,fontWeight:sel.likelihood===lk?600:400}}>{lk}</th>)}</tr></thead>
-                <tbody>{vulns.map(v=>(<tr key={v}><th style={{padding:"3px 7px",textAlign:"left",fontWeight:sel.vuln===v?600:400,border:`0.5px solid ${T.gray100}`,background:sel.vuln===v?vBg[v]:T.gray50,color:sel.vuln===v?vC[v]:T.gray600}}>{v}</th>{lks.map(lk=>{const s=VXL[v][lk],active=v===sel.vuln&&lk===sel.likelihood;const bg=active?T.blue600:s>=6?T.red100:s>=3?T.amber50:T.green50;const c=active?"#fff":s>=6?T.red800:s>=3?T.amber600:T.green600;return<td key={lk} style={{padding:"3px 7px",textAlign:"center",border:`0.5px solid ${T.gray100}`,background:bg,color:c,fontWeight:active?700:500,outline:active?`2px solid ${T.blue400}`:"none"}}>{s}</td>;})}</tr>))}</tbody>
-              </table>
-              <div style={{marginTop:6,color:T.gray600}}>Vuln. <strong>{sel.vuln}</strong> × Lk <strong>{sel.likelihood}</strong> = <strong style={{color:T.blue800}}>VxL = {sel.vxl}</strong></div>
-            </div>
-            {[{label:"Criticality(MTPD)",f:`(${mtpdHours}/${MTPD_MAX_H})/${sel.vxl}`,val:sel.cMTPD,cl:sel.classMTPD},{label:"Criticality(RTO)",f:`(${rtoHours}/${RTO_MAX_H})/${sel.vxl}`,val:sel.cRTO,cl:sel.classRTO}].map(({label,f,val,cl})=>{
-              const cm=CRIT_META[cl]||CRIT_META["media"];
-              return(<div key={label} style={{background:"#fff",border:`0.5px solid ${T.gray100}`,borderRadius:7,padding:"9px 11px",marginBottom:8}}>
-                <div style={{fontSize:10,color:T.gray600,marginBottom:3}}>{label}</div>
-                <div style={{fontFamily:"monospace",fontSize:10,background:T.gray50,padding:"3px 7px",borderRadius:4,marginBottom:5}}>{f} = {val}</div>
-                <CritBadge level={cl}/>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}><div style={{flex:1,height:5,borderRadius:3,background:T.gray100,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:cm.color,width:`${pct(val)}%`,transition:"width .3s"}}/></div><span style={{fontSize:10,fontWeight:500,color:cm.color,minWidth:36,textAlign:"right"}}>{val.toFixed(4)}</span></div>
-              </div>);})}
-            <div style={{background:T.blue50,border:`0.5px solid ${T.blue100}`,borderRadius:7,padding:"9px 11px",fontSize:11,color:T.blue800}}>
-              <strong>Criticità finale</strong><div style={{marginTop:3,fontFamily:"monospace",fontSize:10}}>min({sel.cMTPD}, {sel.cRTO}) = <strong>{sel.cFinal}</strong></div>
-              <div style={{marginTop:3,fontSize:10,color:T.blue600}}>Fattore determinante: <strong>{sel.cFinal===sel.cMTPD?"Criticality(MTPD)":"Criticality(RTO)"}</strong></div>
-            </div>
-          </div>);
-        })()}
+        <div style={{padding:"9px 13px",borderBottom:`0.5px solid ${T.gray100}`,background:T.gray50}}><div style={{fontSize:11,fontWeight:500}}>Dettaglio calcolo — {activeModel.label}</div></div>
+        {!sel?(<div style={{padding:20,textAlign:"center",color:T.gray400,fontSize:11}}>Seleziona un input per il calcolo dettagliato.</div>)
+          :isMatrix?<MatrixDetail sel={sel} params={activeParams}/>:<LegacyDetail sel={sel} params={activeParams} mtpdHours={mtpdHours} rtoHours={rtoHours}/>}
       </div>
+    </div>
+  </div>);
+}
+
+// Dettaglio per il modello legacy §6.5
+function LegacyDetail({sel,params,mtpdHours,rtoHours}){
+  const m=CRIT_META[sel.classFinal]||CRIT_META["media"];const pct=v=>Math.min(v/0.5,1)*100;
+  const vulns=["basso","medio","alto"],lks=["bassa","media","alta"];const vxl=params.vxl||VXL;const maxH=params.maxH||720;
+  const vC={alto:T.red600,medio:T.amber600,basso:T.green600};const vBg={alto:T.red50,medio:T.amber50,basso:T.green50};const lkC={alta:T.red600,media:T.amber600,bassa:T.green600};const lkBg={alta:T.red50,media:T.amber50,bassa:T.green50};
+  return(<div style={{padding:14,maxHeight:"60vh",overflowY:"auto"}}>
+    <div style={{marginBottom:10}}><div style={{fontSize:12,fontWeight:500}}>{sel.name}</div><div style={{fontSize:10,color:T.gray400,marginTop:2}}>{catMeta(sel.cat).label}</div></div>
+    <div style={{background:m.bg,border:`1px solid ${m.border}`,borderRadius:8,padding:"10px 12px",marginBottom:12}}><div style={{fontSize:10,color:m.color,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Criticità finale</div><div style={{fontSize:18,fontWeight:700,color:m.color,textTransform:"uppercase"}}>{sel.classFinal}</div><div style={{fontSize:10,color:m.color,marginTop:2,opacity:.8}}>min({sel.cMTPD}, {sel.cRTO}) = {sel.cFinal}</div></div>
+    <div style={{background:T.gray50,borderRadius:7,padding:"9px 11px",marginBottom:10,fontSize:11}}>
+      <div style={{fontWeight:500,marginBottom:7}}>Step 1 — VxL</div>
+      <table style={{borderCollapse:"collapse",fontSize:10,width:"100%"}}>
+        <thead><tr><th style={{padding:"3px 7px",textAlign:"left",background:T.gray50,border:`0.5px solid ${T.gray100}`,color:T.gray600}}>V/Lk</th>{lks.map(lk=><th key={lk} style={{padding:"3px 7px",textAlign:"center",border:`0.5px solid ${T.gray100}`,background:sel.likelihood===lk?lkBg[lk]:T.gray50,color:sel.likelihood===lk?lkC[lk]:T.gray600,fontWeight:sel.likelihood===lk?600:400}}>{lk}</th>)}</tr></thead>
+        <tbody>{vulns.map(v=>(<tr key={v}><th style={{padding:"3px 7px",textAlign:"left",fontWeight:sel.vuln===v?600:400,border:`0.5px solid ${T.gray100}`,background:sel.vuln===v?vBg[v]:T.gray50,color:sel.vuln===v?vC[v]:T.gray600}}>{v}</th>{lks.map(lk=>{const s=vxl[v][lk],active=v===sel.vuln&&lk===sel.likelihood;const bg=active?T.blue600:s>=6?T.red100:s>=3?T.amber50:T.green50;const c=active?"#fff":s>=6?T.red800:s>=3?T.amber600:T.green600;return<td key={lk} style={{padding:"3px 7px",textAlign:"center",border:`0.5px solid ${T.gray100}`,background:bg,color:c,fontWeight:active?700:500,outline:active?`2px solid ${T.blue400}`:"none"}}>{s}</td>;})}</tr>))}</tbody>
+      </table>
+      <div style={{marginTop:6,color:T.gray600}}>Vuln. <strong>{sel.vuln}</strong> × Lk <strong>{sel.likelihood}</strong> = <strong style={{color:T.blue800}}>VxL = {sel.vxl}</strong></div>
+    </div>
+    {[{label:"Criticality(MTPD)",f:`(${mtpdHours}/${maxH})/${sel.vxl}`,val:sel.cMTPD,cl:sel.classMTPD},{label:"Criticality(RTO)",f:`(${rtoHours}/${maxH})/${sel.vxl}`,val:sel.cRTO,cl:sel.classRTO}].map(({label,f,val,cl})=>{
+      const cm=CRIT_META[cl]||CRIT_META["media"];
+      return(<div key={label} style={{background:"#fff",border:`0.5px solid ${T.gray100}`,borderRadius:7,padding:"9px 11px",marginBottom:8}}>
+        <div style={{fontSize:10,color:T.gray600,marginBottom:3}}>{label}</div>
+        <div style={{fontFamily:"monospace",fontSize:10,background:T.gray50,padding:"3px 7px",borderRadius:4,marginBottom:5}}>{f} = {val}</div>
+        <CritBadge level={cl}/>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}><div style={{flex:1,height:5,borderRadius:3,background:T.gray100,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:cm.color,width:`${pct(val)}%`,transition:"width .3s"}}/></div><span style={{fontSize:10,fontWeight:500,color:cm.color,minWidth:36,textAlign:"right"}}>{val.toFixed(4)}</span></div>
+      </div>);})}
+    <div style={{background:T.blue50,border:`0.5px solid ${T.blue100}`,borderRadius:7,padding:"9px 11px",fontSize:11,color:T.blue800}}>
+      <strong>Criticità finale</strong><div style={{marginTop:3,fontFamily:"monospace",fontSize:10}}>min({sel.cMTPD}, {sel.cRTO}) = <strong>{sel.cFinal}</strong></div>
+      <div style={{marginTop:3,fontSize:10,color:T.blue600}}>Fattore determinante: <strong>{sel.cFinal===sel.cMTPD?"Criticality(MTPD)":"Criticality(RTO)"}</strong></div>
+    </div>
+  </div>);
+}
+
+// Dettaglio per il modello a matrice (urgenza × VxL)
+function MatrixDetail({sel,params}){
+  const m=CRIT_META[sel.classFinal]||CRIT_META["media"];
+  const metricLbl=params.timeMetric==="mtpd"?"MTPD":params.timeMetric==="min"?"min(RTO, MTPD)":"RTO finale";
+  return(<div style={{padding:14,maxHeight:"60vh",overflowY:"auto"}}>
+    <div style={{marginBottom:10}}><div style={{fontSize:12,fontWeight:500}}>{sel.name}</div><div style={{fontSize:10,color:T.gray400,marginTop:2}}>{catMeta(sel.cat).label}</div></div>
+    <div style={{background:m.bg,border:`1px solid ${m.border}`,borderRadius:8,padding:"10px 12px",marginBottom:12}}><div style={{fontSize:10,color:m.color,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Criticità finale</div><div style={{fontSize:18,fontWeight:700,color:m.color,textTransform:"uppercase"}}>{sel.classFinal}</div><div style={{fontSize:10,color:m.color,marginTop:2,opacity:.8}}>Urgenza «{sel.urgencyLabel}» × VxL «{sel.vxlBandLabel}»</div></div>
+    <div style={{background:T.gray50,borderRadius:7,padding:"9px 11px",marginBottom:10,fontSize:11,color:T.gray600}}>
+      <div style={{marginBottom:4}}><strong>Step 1 — Esposizione (VxL)</strong></div>
+      <div>Vuln. <strong>{sel.vuln}</strong> × Lk <strong>{sel.likelihood}</strong> = <strong style={{color:T.blue800}}>VxL {sel.vxl}</strong> → banda <strong>{sel.vxlBandLabel}</strong></div>
+      <div style={{marginTop:8,marginBottom:4}}><strong>Step 2 — Urgenza temporale</strong></div>
+      <div>Metrica: <strong>{metricLbl}</strong> = <strong>{rtoLabel(sel.timeUsedH)}</strong> ({sel.timeUsedH}h) → banda <strong>{sel.urgencyLabel}</strong></div>
+    </div>
+    <div style={{fontSize:10,fontWeight:500,color:T.gray600,marginBottom:6}}>Step 3 — Incrocio nella matrice</div>
+    <div style={{overflowX:"auto"}}>
+      <table style={{borderCollapse:"collapse",fontSize:9,width:"100%"}}>
+        <thead><tr><th style={{padding:"3px 5px",background:T.gray50,border:`0.5px solid ${T.gray100}`,color:T.gray600}}>Urg\VxL</th>{params.vxlBands.map((b,vi)=><th key={vi} style={{padding:"3px 5px",textAlign:"center",border:`0.5px solid ${T.gray100}`,background:vi===sel.vxlIndex?T.blue50:T.gray50,color:vi===sel.vxlIndex?T.blue800:T.gray600,fontWeight:vi===sel.vxlIndex?600:400}}>{b.label}</th>)}</tr></thead>
+        <tbody>{params.matrix.map((row,ui)=>(<tr key={ui}><th style={{padding:"3px 5px",textAlign:"left",border:`0.5px solid ${T.gray100}`,background:ui===sel.urgencyIndex?T.blue50:T.gray50,color:ui===sel.urgencyIndex?T.blue800:T.gray600,fontWeight:ui===sel.urgencyIndex?600:400,whiteSpace:"nowrap"}}>{params.urgencyBands[ui]?.label}</th>{row.map((cls,vi)=>{const cm=CRIT_META[cls]||CRIT_META["media"];const active=ui===sel.urgencyIndex&&vi===sel.vxlIndex;return<td key={vi} style={{padding:"3px 5px",textAlign:"center",border:`0.5px solid ${T.gray100}`,background:cm.bg,color:cm.color,fontWeight:active?700:400,outline:active?`2px solid ${T.blue600}`:"none"}}>{active?"●":""}</td>;})}</tr>))}</tbody>
+      </table>
+    </div>
+    <div style={{marginTop:10,background:T.blue50,border:`0.5px solid ${T.blue100}`,borderRadius:7,padding:"9px 11px",fontSize:11,color:T.blue800}}>
+      Cella selezionata → <strong style={{textTransform:"uppercase"}}>{sel.classFinal}</strong>
     </div>
   </div>);
 }
@@ -358,10 +397,11 @@ export default function ProcessView({process:proc,onBack}){
   const [preFillCat,setPreFillCat]=useState("");
   const [toast,setToast]=useState(null);
   const nextId=useRef(1000);
+  const {computeCrit}=useConfig();
   const mtpd=computeMTPD(biaCells);const finalRTO=computeFinalRTO(proc.rtoOwnerHours,proc.rtoITHours);const coherent=checkRTOvsMTPD(finalRTO,mtpd);
   const filled=CATEGORIES.filter(c=>inputs.some(i=>i.cat===c.id)).length;
   const issues=inputs.filter(i=>i.issues).length;
-  const critHigh=inputs.filter(i=>i.vuln&&i.likelihood&&computeCriticality({mtpdHours:mtpd.hours,rtoHours:finalRTO,vuln:i.vuln,likelihood:i.likelihood}).classFinal==="molto alta").length;
+  const critHigh=inputs.filter(i=>i.vuln&&i.likelihood&&computeCrit({mtpdHours:mtpd.hours,rtoHours:finalRTO,vuln:i.vuln,likelihood:i.likelihood}).classFinal==="molto alta").length;
   function showToast(msg){setToast(msg);setTimeout(()=>setToast(null),2400);}
   function openNew(catId){setEditInput(null);setPreFillCat(catId||"");setDrawerOpen(true);}
   function openEdit(inp){setEditInput(inp);setPreFillCat("");setDrawerOpen(true);}
@@ -405,64 +445,6 @@ export default function ProcessView({process:proc,onBack}){
   </div>);
 }
 
-// Demo wrapper
-const DEMO_PROCESSES=[
-  {id:1,name:"Production MM",macro:"Operations",sito:"Montecchio Maggiore",owner:"M. Ferretti",rtoOwnerHours:8,rtoITHours:12,peakPeriod:"Nov–Dic (+40%)",
-   initialBIA:{rep:[0,0,1,1,2,3,4,4],leg:[0,0,0,1,1,2,3,4],fin:[0,1,1,2,3,3,4,4]},
-   initialInputs:[
-    {id:1,cat:"EQUIPMENT",name:"Reattori batch R1–R4",qty_normal:4,qty_min:2,vuln:"alto",likelihood:"alta",recovery:"Prioritizzazione batch critici",issues:"R3 fermo – ETA 15/06"},
-    {id:2,cat:"MATERIALS",name:"API – Principio attivo X",qty_normal:500,qty_min:200,supplier_count:2,supplier_min:1,vuln:"alto",likelihood:"media",recovery:"Stock sicurezza 30gg",issues:"Fornitore primario in ritardo Q2"},
-    {id:3,cat:"SOFTWARE", name:"MES Opcenter (Siemens)",supplier:"Siemens",importance:"critica",rpo:"4h",data_critical:true,vuln:"medio",likelihood:"media",recovery:"Failover su server DR",issues:""},
-    {id:4,cat:"HR",       name:"Operatori linea A",qty_normal:14,qty_min:7,vuln:"medio",likelihood:"media",recovery:"Back-up da linea B",issues:""},
-    {id:5,cat:"UTILITIES",name:"Energia elettrica",supplier:"Enel",importance:"critica",vuln:"basso",likelihood:"alta",recovery:"GE 500kW (4h autonomia)",issues:""},
-    {id:6,cat:"LOCATION", name:"Stabilimento MM – ed. R",location_name:"Via Chimica 1, MM",vuln:"medio",likelihood:"media",recovery:"Produzione parziale edificio S",issues:""},
-   ]},
-  {id:7,name:"IT Infrastructure",macro:"IT",sito:"Milano",owner:"L. Moretti",rtoOwnerHours:4,rtoITHours:4,peakPeriod:"—",
-   initialBIA:{rep:[0,1,2,3,4,4,4,4],leg:[0,0,1,2,3,3,4,4],fin:[0,1,2,3,4,4,4,4]},
-   initialInputs:[
-    {id:10,cat:"SOFTWARE",name:"SAP S/4HANA (server)",supplier:"SAP/AWS",importance:"critica",rpo:"1h",data_critical:true,vuln:"basso",likelihood:"media",recovery:"Replica sincrona DR site",issues:""},
-    {id:11,cat:"SOFTWARE",name:"Active Directory",supplier:"Microsoft",importance:"critica",rpo:"30min",data_critical:true,vuln:"basso",likelihood:"media",recovery:"Cluster AD a 3 nodi",issues:""},
-    {id:12,cat:"LOCATION",name:"Data center – Milano",location_name:"Via Pirelli 35, MI",vuln:"medio",likelihood:"media",recovery:"DR site Lonigo (RTO 4h)",issues:"DR site non ancora certificato"},
-    {id:13,cat:"LOCATION",name:"DR site – Lonigo",location_name:"Via Industria 8, LO",vuln:"alto",likelihood:"bassa",recovery:"—",issues:"Setup in corso"},
-    {id:14,cat:"HR",      name:"Sistemisti",qty_normal:6,qty_min:3,vuln:"medio",likelihood:"media",recovery:"Reperibilità 24/7",issues:""},
-    {id:15,cat:"UTILITIES",name:"UPS + generatore",supplier:"Interna",importance:"critica",vuln:"basso",likelihood:"bassa",recovery:"UPS 30min + GE 100kW",issues:""},
-   ]},
-  {id:3,name:"Production TE",macro:"Operations",sito:"Termoli",owner:"D. Esposito",rtoOwnerHours:16,rtoITHours:24,peakPeriod:"Giu–Set (+30%)",
-   initialBIA:{rep:new Array(8).fill(0),leg:new Array(8).fill(0),fin:new Array(8).fill(0)},
-   initialInputs:[]},
-];
-
-export function ProcessViewDemo(){
-  const [selProc,setSelProc]=useState(null);
-  if(selProc)return <ProcessView process={selProc} onBack={()=>setSelProc(null)}/>;
-  return(<div style={{fontFamily:"system-ui,sans-serif",background:T.gray50,minHeight:"100vh"}}>
-    <div style={{background:"#fff",borderBottom:`0.5px solid ${T.gray100}`,padding:"12px 20px",display:"flex",alignItems:"center",gap:12}}>
-      <div style={{width:28,height:28,background:T.blue600,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:600}}>N</div>
-      <div style={{width:1,height:24,background:T.gray100}}/>
-      <span style={{fontSize:13,fontWeight:500}}>NIER BIA-RA</span>
-      <span style={{fontSize:11,color:T.gray400}}>Seleziona un processo per aprire la scheda consolidata</span>
-    </div>
-    <div style={{padding:"20px"}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,maxWidth:800}}>
-        {DEMO_PROCESSES.map(p=>{
-          const biaFilled=IMPACT_DIMS.some(d=>p.initialBIA?.[d.id]?.some(v=>v>0));
-          const cells=Object.fromEntries(IMPACT_DIMS.map(d=>[d.id,(p.initialBIA?.[d.id]||new Array(8).fill(0))]));
-          const mtpd=biaFilled?computeMTPD(cells):null;
-          const rto=computeFinalRTO(p.rtoOwnerHours,p.rtoITHours);
-          const inpFilled=CATEGORIES.filter(c=>p.initialInputs?.some(i=>i.cat===c.id)).length;
-          return(<button key={p.id} onClick={()=>setSelProc(p)} style={{textAlign:"left",background:"#fff",border:`0.5px solid ${T.gray100}`,borderRadius:10,padding:16,cursor:"pointer",transition:"all .15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue400;e.currentTarget.style.boxShadow="0 2px 8px rgba(55,138,221,.12)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.gray100;e.currentTarget.style.boxShadow="none";}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div style={{fontSize:13,fontWeight:500}}>{p.name}</div>
-              <span style={{fontSize:10,padding:"1px 6px",borderRadius:5,background:T.gray50,color:T.gray600}}>{p.macro}</span>
-            </div>
-            <div style={{fontSize:11,color:T.gray400,marginBottom:10}}>{p.sito} · {p.owner}</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              {mtpd&&<Pill label={`MTPD ${mtpd.label}`} bg={T.red50} color={T.red600}/>}
-              <Pill label={`RTO ${rtoLabel(rto)}`} bg={T.blue50} color={T.blue800}/>
-              <Pill label={`${inpFilled}/7 cat.`} bg={inpFilled>=5?T.teal50:T.amber50} color={inpFilled>=5?T.teal600:T.amber600}/>
-            </div>
-          </button>);})}
-      </div>
-    </div>
-  </div>);
-}
+// I dati demo dei processi sono ora in src/data/demoData.js (PROCESSES),
+// e la navigazione tra Dashboard / Processi / scheda è gestita da src/App.jsx.
+// ProcessView resta un componente puro che riceve `process` e `onBack` via props.

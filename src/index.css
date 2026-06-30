@@ -16,3 +16,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: #F1EFE8; /* gray50 — allineato alla palette NIER */
 }
+
+/* Stampa / PDF: nasconde navigazione e azioni, sfondo bianco */
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+}
